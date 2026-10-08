@@ -36,7 +36,7 @@ The container uses `restart: unless-stopped` and runs on the default Docker Comp
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/andry-pebrianto/nilabiru-portainer-agent.git
+git clone https://github.com/NILABIRU/nilabiru-portainer-agent.git
 cd nilabiru-portainer-agent
 ```
 
