@@ -1,20 +1,24 @@
 # Nilabiru Portainer Agent
 
-A lightweight Docker Compose setup that runs the Portainer Agent, enabling remote Docker environment management from a central Portainer CE instance in the Nilabiru ecosystem.
+A Docker Compose setup for the Portainer Agent, letting a central Portainer server manage the Docker host this stack runs on.
 
 ---
 
 ## Overview
 
-**Nilabiru Portainer Agent** deploys a single [Portainer Agent](https://docs.portainer.io/admin/environments/add/docker/agent) container on a remote Docker host. Once running, the agent exposes port `9001` so that a central Portainer CE instance (such as the one running in `nilabiru-data-hub`) can connect to and manage this host's containers, images, volumes, and networks from a single web UI.
+**Nilabiru Portainer Agent** runs a single container, the [Portainer Agent](https://docs.portainer.io/admin/environments/add/docker/agent), on a remote server. Once the agent is running, a Portainer server can connect to it and manage that server's containers, images, networks, and volumes from one central dashboard. Deployment is handled by a single `deploy.sh` script.
 
 ---
 
 ## Services
 
-| Service                      | Image                    | Port   | Description                                                                          |
-| ---------------------------- | ------------------------ | ------ | ------------------------------------------------------------------------------------ |
-| **nilabiru-portainer-agent** | `portainer/agent:2.42.0` | `9001` | Portainer Agent that exposes the local Docker environment to a Portainer CE instance |
+| Service                      | Image                    | Port(s) | Description                                                              |
+| ---------------------------- | ------------------------ | ------- | ------------------------------------------------------------------------ |
+| **nilabiru-portainer-agent** | `portainer/agent:2.42.0` | `9001`  | Agent that lets a Portainer server manage this host's Docker environment |
+
+The container uses `restart: unless-stopped` and runs on the default Docker Compose network.
+
+> **Warning:** Unlike the other Nilabiru stacks, port `9001` is published on **all network interfaces** — it is not bound to the Tailscale IP. The agent has full control over the host's Docker daemon, so restrict access to this port to your Portainer server only (for example with a firewall rule such as `ufw`), or bind it to a private IP in `docker-compose.yml`.
 
 ---
 
@@ -22,64 +26,80 @@ A lightweight Docker Compose setup that runs the Portainer Agent, enabling remot
 
 - Docker Engine `20.10+`
 - Docker Compose `v2+`
-- Port `9001` reachable from the host running Portainer CE (either via Tailscale, VPN, or direct network access)
-- A running Portainer CE instance to connect to this agent
+- A running Portainer server that can reach this host on port `9001`
+- The agent version should match the Portainer server version (`2.42.0`)
 
 ---
 
 ## Getting Started
 
-### 1. Fast Deploy (Recommended for Multi-VM)
-
-If you want to install this agent on many new VMs without cloning the repository, you can directly execute the `docker-compose.yml` file *remotely* using the following command in the target VM's terminal:
+### 1. Clone the repository
 
 ```bash
-curl -s https://raw.githubusercontent.com/andry-pebrianto/nilabiru-data-hub-agent/main/docker-compose.yml | docker compose -f - up -d
+git clone https://github.com/andry-pebrianto/nilabiru-portainer-agent.git
+cd nilabiru-portainer-agent
 ```
 
-### 2. Standard Deploy (Manual Clone)
+### 2. Start the agent
 
-If you want to store the configuration file locally on the VM:
+This stack needs no environment variables or `.env` file. Start it with the provided deploy script:
 
 ```bash
-git clone https://github.com/andry-pebrianto/nilabiru-data-hub-agent.git
-cd nilabiru-data-hub-agent
+chmod +x deploy.sh
+./deploy.sh
+```
+
+`deploy.sh` stops on the first error (`set -e`) and does the following:
+
+1. Validates the Compose configuration with `docker compose config --quiet`.
+2. Deploys/redeploys the agent with `docker compose up -d --remove-orphans --build`.
+3. Always runs a cleanup on exit (even if a step fails) that removes dangling images with `docker image prune -f`.
+
+Alternatively, you can start the agent directly:
+
+```bash
 docker compose up -d
 ```
 
-To make sure the agent container is running properly, use the following command:
+To verify it is running:
 
 ```bash
 docker compose ps
 ```
 
----
+### 3. Connect it to your Portainer server
 
-## 3. Connect from Portainer CE
-
-In your Portainer CE main dashboard:
-
-1. Go to **Environments → Add environment**.
-2. Select **Docker Standalone** → **Agent**.
-3. Enter an identity name for this new VM and fill in the **Agent URL** with `<HOST_IP>:9001`.
-4. Click **Add environment**.
-
-> **Note:** Replace `<HOST_IP>` with the IP address or hostname of the machine where the agent is installed (for example, using a Tailscale IP for better security).
+1. In the Portainer web UI, go to **Environments → Add environment**.
+2. Choose **Docker Standalone** and then **Agent**.
+3. Enter a name and the environment address: `<SERVER_IP>:9001`.
+4. Click **Connect**.
 
 ---
 
-## Data Persistence
+## Service Access
 
-This service does not store any persistent data on its own. The container only performs *bind mounts* on two host paths with *read-write* access so that Portainer CE can monitor and manage them:
+| Service         | Address            |
+| --------------- | ------------------ |
+| Portainer Agent | `<SERVER_IP>:9001` |
 
-| Mount                     | Type       | Purpose                             |
-| ------------------------- | ---------- | ----------------------------------- |
-| `/var/run/docker.sock`    | Bind mount | Docker socket access for API calls  |
-| `/var/lib/docker/volumes` | Bind mount | Volume browsing via Portainer CE UI |
+The agent has no web interface of its own — it is only used by a Portainer server.
+
+---
+
+## Volumes & Mounts
+
+The agent does not use any named volumes. It needs the following host bind mounts:
+
+| Mount                                             | Type       | Purpose                                               |
+| ------------------------------------------------- | ---------- | ----------------------------------------------------- |
+| `/var/run/docker.sock:/var/run/docker.sock`       | Bind mount | Docker socket access to manage containers and images  |
+| `/var/lib/docker/volumes:/var/lib/docker/volumes` | Bind mount | Access to Docker volumes so Portainer can browse them |
+
+> **Note:** Mounting the Docker socket gives the agent root-equivalent control over the host. Only connect it to a Portainer server you trust.
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).  
+This project is licensed under the [MIT License](LICENSE).
 Copyright © 2026 Andry Pebrianto
